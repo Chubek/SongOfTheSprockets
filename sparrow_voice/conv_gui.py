@@ -1,3 +1,4 @@
+from subprocess import call
 from dearpygui.core import *
 from dearpygui.simple import *
 from random import randint
@@ -5,6 +6,8 @@ import json
 import os
 import glob
 from pathlib import Path
+from pydub import AudioSegment
+from pydub.silence import split_on_silence
 import time
 from shutil import copy2
 import sklearn
@@ -81,6 +84,34 @@ etj = ETJ()
 conv = Convert()
 
 def main():
+
+    def split_silence():
+        file_loc = get_value("File Location")
+        save_loc = get_value("Save Location")
+        ms = get_value("Silence Length Threshold")
+        pow = get_value("Silence Power Threshold")
+
+        audio_segment = AudioSegment.from_wav(file_loc)  
+        chunks = split_on_silence(audio_segment, min_silence_len=ms, silence_thresh=pow, keep_silence=200)
+
+        for i, chunk in enumerate(chunks):
+            chunk.export(save_loc, f"{i}.wav", format="wav")
+            set_value('Split Progress', i / len(chunks))
+    
+    def set_split_save(sender, data):
+        directory = data[0]
+        set_value("Save Location", directory)
+
+    def get_split_file(sender, data):
+        file = data[1]
+        directory = data[0]
+
+        set_value("File Location", os.path.join(directory, file))
+
+    def reset_vals():
+        set_value("File Location", "")
+        set_value("Save Location", "")
+
     def fe_progress_bar():
         configure_item("Wrong FS", show=False)
         configure_item("Feature Extraction Progress", show=True)
@@ -214,7 +245,8 @@ def main():
         main_data["f0_ratios"].append(f0rate)
         configure_item("Transformed", show=True)
         set_value("Transformed", f"Transformed with F0 value {f0rate}.")
-
+        configure_item("Select F0 Ratio", items=main_data["f0_ratios"])
+        main_data["f0trans_done"] = True
         json.dump(main_data, open(os.path.join(main_data["work_path"], "state.conv"), "w"))
 
 
@@ -926,26 +958,59 @@ def main():
         add_separator()
         add_text("Wrong FS", color=(255, 0, 0), show=False, default_value="")
 
+    def all_at_once():
+        create_conv_1()
+        create_conv_2()
+        create_conv_3()
+        create_conv_4()
+        create_conv_5()
+
     with window("Training and Conversion", width=400, height=800):
         with managed_columns("main_conv", 2):
             add_listbox("Select F0 Ratio", items=main_data["f0_ratios"])
             add_button("All at Once!")
 
         add_separator()
-        configure_item('Step 1: Feature Extraction', enabled=main_data["enable_conv_1"])
+        add_button('Step 1: Feature Extraction', enabled=main_data["enable_conv_1"], callback=lambda: create_conv_1())
         add_progress_bar("EF Progress")
         add_separator()
-        configure_item('Step 2: Statistical Feature Extraction', enabled=main_data["enable_conv_2"])
+        add_button('Step 2: Statistical Feature Extraction', enabled=main_data["enable_conv_2"], callback=lambda: create_conv_2())
         add_progress_bar("EFS Progress")
         add_separator()
-        configure_item('Step 3: ETJ Extraction', enabled=main_data["enable_conv_3"])
+        add_button('Step 3: ETJ Extraction', enabled=main_data["enable_conv_3"], callback=lambda: create_conv_3())
         add_progress_bar("ETJ Progress")
         add_separator()
-        configure_item('Step 4: Training', enabled=main_data["enable_conv_4"])
+        add_button('Step 4: Training', enabled=main_data["enable_conv_4"], callback=lambda: create_conv_4())
         add_progress_bar("Training Progress")
         add_separator()
-        configure_item('Step 5: Conversion', enabled=main_data["enable_conv_5"])
+        add_button('Step 5: Conversion', enabled=main_data["enable_conv_5"], callback=lambda: create_conv_5())
         add_progress_bar("Conversion Progress")
+        add_separator()
+        add_text("EF Done", show=False)
+        add_text("EFS Done", show=False)
+        add_text("ETJ Done", show=False)
+        add_text("Training Done", show=False)
+        add_text("Conversion Done", show=False)
+
+    with window("Split File on Silence", width=400, height=200):
+        with managed_columns("getfile", 2):
+            add_input_text("File Location")
+            add_button("Browse... ##232", callback=lambda: get_split_file())
+
+        add_separator()
+
+        with managed_columns("savefile", 2):
+            add_input_text("Save Location")
+            add_button("Browse... ##2322", callback=lambda: set_split_save())
+        
+        add_separator()
+
+        add_button("Split", callback=lambda: split_on_silence())
+
+        add_progress_bar("Split Progress")
+
+        add_button("Reset", callback=lambda: reset_vals())
+        
 
     with window("Main Window", no_close=True, width=800, height=500, x_pos=randint(0, 500), y_pos=randint(0, 450)):
         with managed_columns("Main Buttons", 3):
@@ -953,6 +1018,8 @@ def main():
             add_button("Create Train/Conversion List ##button", callback=lambda: show_item("Create Train/Conversion List ##window"), height=150, width=250)
             add_button("Create Configuration Files ##button", callback=lambda: show_item("Create Configuration Files"), enabled=main_data["files_copied"], height=150, width=250)
             add_button("F0 Transformation ##button", callback=lambda: show_item("F0 Transformation"), enabled=main_data["conf_pair_created"] & main_data["conf_speaker_created"], height=150, width=250)
+            add_button("Training and Conversion ##button", callback=lambda: show_item("Training and Conversion"), enabled=main_data["conf_pair_created"] & main_data["conf_speaker_created"] & main_data["f0strans_done"], height=150, width=250)
+            add_button("Split File on Silence ##button", callback=lambda: show_item("Split File on Silence"), height=150, width=250)
 
 
 
@@ -962,7 +1029,10 @@ def main():
     hide_item("plots")
     hide_item("F0 Transformation")
     hide_item("Create Configuration Files")
+    hide_item("Training and Conversion")
+    hide_item("Split File on Silence")
 
+    add_about_window("2021-OctoShrew/Chubak Bidpaa All Rights Reserved")
     start_dearpygui()
 
 
