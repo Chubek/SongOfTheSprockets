@@ -1,0 +1,12 @@
+dearpygui
+sprocket-vc
+numpy
+scipy
+scikit-learn
+pyworld
+h5py
+dtw
+fastdtw
+pyyaml
+docopt
+pysptk
