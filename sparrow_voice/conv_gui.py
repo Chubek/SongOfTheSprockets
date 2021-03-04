@@ -1021,8 +1021,17 @@ def main():
             add_button("Training and Conversion ##button", callback=lambda: show_item("Training and Conversion"), enabled=main_data["conf_pair_created"] & main_data["conf_speaker_created"] & main_data["f0strans_done"], height=150, width=250)
             add_button("Split File on Silence ##button", callback=lambda: show_item("Split File on Silence"), height=150, width=250)
 
+        with menu_bar("Main Menu Bar"):
+            with menu("File"):
+                add_menu_item("Credits", callback=lambda: show_item("Credits"))
 
-
+    
+    with window("Credits", width=200, height=150):
+        add_text("2021 (C)")
+        add_text("OctoShrew")
+        add_text("Chubak Bidpaa")
+        add_text("www.octoshrew.com")
+        add_text("chubak.bidpaa@octoshrew.com")
 
     hide_item("Create Train/Conversion List ##window")
     hide_item("Create Conversion Settings")
@@ -1031,8 +1040,8 @@ def main():
     hide_item("Create Configuration Files")
     hide_item("Training and Conversion")
     hide_item("Split File on Silence")
+    hide_item("Credits")
 
-    add_about_window("2021-OctoShrew/Chubak Bidpaa All Rights Reserved")
     start_dearpygui()
 
 
