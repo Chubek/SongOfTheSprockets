@@ -50,7 +50,7 @@ def read_feats(listf, h5dir, ext='mcep'):
     """
 
     datalist = []
-    for lf in listf:
+    for f in listf:
         f = f.rstrip()
         h5f = os.path.join(h5dir, f + '.h5')
         h5 = HDF5(h5f, mode='r')

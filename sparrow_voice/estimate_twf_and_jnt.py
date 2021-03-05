@@ -15,7 +15,7 @@ class ETJ:
     def __init__(self):
         self.progress = 0
 
-    def get_alignment(odata, onpow, tdata, tnpow, opow=-20, tpow=-20,
+    def get_alignment(self, odata, onpow, tdata, tnpow, opow=-20, tpow=-20,
                     sd=0, cvdata=None, given_twf=None, otflag=None,
                     distance='melcd'):
         """Get alignment between original and target
@@ -129,8 +129,7 @@ class ETJ:
         """
         num_files = len(odata)
         cvgmm, cvdata = None, None
-        for it in range(1, itnum + 1):
-            self.progress += 11 
+        for it in range(1, itnum + 1):            
             print('{}-th joint feature extraction starts.'.format(it))
             twfs, jfvs = [], []
             for i in range(num_files):
@@ -141,7 +140,7 @@ class ETJ:
                 if it > 1:
                     cvdata = cvgmm.convert(static_delta(odata[i][:, sd:]),
                                         cvtype=pconf.GMM_mcep_cvtype)
-                jdata, twf, mcd = get_alignment(odata[i],
+                jdata, twf, mcd = self.get_alignment(odata[i],
                                                 onpows[i],
                                                 tdata[i],
                                                 tnpows[i],
@@ -154,6 +153,7 @@ class ETJ:
                 twfs.append(twf)
                 jfvs.append(jdata)
                 print('distortion [dB] for {}-th file: {}'.format(i + 1, mcd))
+                self.progress += 1
             jnt_data = transform_jnt(jfvs)
 
             if it != itnum:
@@ -231,11 +231,12 @@ class ETJ:
         # save twfs
         twf_dir = os.path.join(pair_dir, 'twf')
         os.makedirs(twf_dir, exist_ok=True)
-        with open(org_list, 'r') as fp:
-            for line, twf in zip(fp, twfs):
-                f = os.path.basename(line.rstrip())
-                twfpath = os.path.join(
-                    twf_dir, 'it' + str(pconf.jnt_n_iter) + '_' + f + '.h5')
-                twfh5 = HDF5(twfpath, mode='a')
-                twfh5.save(twf, ext='twf')
-                twfh5.close()
+        
+        for line, twf in zip(org_list, twfs):
+            f = os.path.basename(line.rstrip())
+            twfpath = os.path.join(
+                twf_dir, 'it' + str(pconf.jnt_n_iter) + '_' + f + '.h5')
+            twfh5 = HDF5(twfpath, mode='a')
+            twfh5.save(twf, ext='twf')
+            twfh5.close()
+            self.progress += 1

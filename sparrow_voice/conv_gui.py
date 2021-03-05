@@ -20,6 +20,7 @@ from .extract_features import ExtractFeatures
 from .train_GMM import main as train_main
 from .convert import Convert
 
+import subprocess
 import threading
 
 
@@ -86,17 +87,22 @@ conv = Convert()
 def main():
 
     def split_silence():
+        configure_item("Split Progress", show=True)
         file_loc = get_value("File Location")
         save_loc = get_value("Save Location")
         ms = get_value("Silence Length Threshold")
         pow = get_value("Silence Power Threshold")
 
-        audio_segment = AudioSegment.from_wav(file_loc)  
+        audio_segment = AudioSegment.from_wav(file_loc)
+        set_value('Split Progress', 0.1)  
         chunks = split_on_silence(audio_segment, min_silence_len=ms, silence_thresh=pow, keep_silence=200)
 
         for i, chunk in enumerate(chunks):
-            chunk.export(save_loc, f"{i}.wav", format="wav")
-            set_value('Split Progress', i / len(chunks))
+            chunk = chunk.split_to_mono()[0]
+            chunk.export(os.path.join(save_loc, f"chunk_{i}.wav"), format="wav")
+            set_value('Split Progress', (i / len(chunks)) + 0.1)
+        configure_item("Split Progress", show=False)
+        subprocess.Popen(f'explorer "{save_loc}"')
     
     def set_split_save(sender, data):
         directory = data[0]
@@ -138,13 +144,14 @@ def main():
 
             set_value("F0 Transform Progress", (f0trans.progress / max_value))
         configure_item("F0 Transform Progress", show=False)
+        
 
     def ef_progress():
         configure_item("EF Progress", show=True)
 
         max_value = len(main_data["src_files"]) + len(main_data["tgt_files"])
 
-        while True or not main_data["ef_done"]:
+        while True:
             if ef.ef_progress >= max_value:
                 set_value("EF Progress", 1)
                 break
@@ -176,14 +183,17 @@ def main():
     def etj_progress():
         configure_item("ETJ Progress", show=True)
 
-        max_value = len(main_data["src_files"])
+        max_value = (len(main_data["src_files"])) * 4
 
-        while True or not main_data["etj_done"]:
+        while True:
             if etj.progress >= max_value:
                 set_value("ETJ Progress", 1)
                 break
 
             set_value("ETJ Progress", (etj.progress / max_value))
+
+        set_value("ETJ Progress", 1)
+
 
     def train_progress():
         configure_item("Training Progress", show=True)
@@ -245,25 +255,26 @@ def main():
         main_data["f0_ratios"].append(f0rate)
         configure_item("Transformed", show=True)
         set_value("Transformed", f"Transformed with F0 value {f0rate}.")
-        configure_item("Select F0 Ratio", items=main_data["f0_ratios"])
+        configure_item("Select From F0 Ratios", items=main_data["f0_ratios"])
         main_data["f0trans_done"] = True
+        configure_item("Training and Conversion ##button", enabled=main_data["conf_pair_created"] & main_data['conf_speaker_created'] & main_data["f0trans_done"])
         json.dump(main_data, open(os.path.join(main_data["work_path"], "state.conv"), "w"))
 
-
+ 
     def conv_step_1():
         configure_item('Step 1: Feature Extraction', enabled=False)
 
         f0 = main_data["f0_ratios"][get_value("Select From F0 Ratios")]
-
+        org = f"{main_data['source_speaker']}_{f0}"
         src_files_split = (d.split("\\") for d in main_data['src_files'])
         src_files = [f"{f}_{f0}\\{d}" for f, d in src_files_split]
 
-        overwrite = get_value("Overwrite Saved File?")
+        overwrite = True
         
         org_yml = os.path.join(main_data["work_path"], "conf", "speaker", main_data["source_speaker"] + ".yml")
         tar_yml = os.path.join(main_data["work_path"], "conf", "speaker", main_data["target_speaker"] + ".yml")
 
-        ef.ef_main(overwrite, main_data["source_speaker"], org_yml, src_files, os.path.join(main_data["work_path"], "pair"), main_data["work_path"])
+        ef.ef_main(overwrite, org, org_yml, src_files, os.path.join(main_data["work_path"], "pair"), main_data["work_path"])
         ef.ef_main(overwrite, main_data["target_speaker"], tar_yml, main_data["tgt_files"], os.path.join(main_data["work_path"], "pair"), main_data["work_path"])
 
         main_data["ef_done"] = True
@@ -277,11 +288,11 @@ def main():
     def conv_step_2():
         configure_item('Step 2: Statistical Feature Extraction', enabled=False)
         f0 = main_data["f0_ratios"][get_value("Select From F0 Ratios")]
-
+        org = f"{main_data['source_speaker']}_{f0}"
         src_files_split = (d.split("\\") for d in main_data['src_files'])
         src_files = [f"{f}_{f0}\\{d}" for f, d in src_files_split]
 
-        efs_main(main_data["source_speaker"], src_files, os.path.join(main_data["work_path"], "pair"))
+        efs_main(org, src_files, os.path.join(main_data["work_path"], "pair"))
         efs_main(main_data["target_speaker"], main_data["tgt_files"], os.path.join(main_data["work_path"], "pair"))
 
         main_data["efs_done"] = True
@@ -294,7 +305,6 @@ def main():
     def conv_step_3():
         configure_item('Step 3: ETJ Extraction', enabled=False)
         f0 = main_data["f0_ratios"][get_value("Select From F0 Ratios")]
-
         src_files_split = (d.split("\\") for d in main_data['src_files'])
         src_files = [f"{f}_{f0}\\{d}" for f, d in src_files_split]
         org_yml = os.path.join(main_data["work_path"], "conf", "speaker", main_data["source_speaker"] + ".yml")
@@ -304,7 +314,7 @@ def main():
         configure_item('Step 3: ETJ Extraction', enabled=True)
         configure_item('Step 4: Training', enabled=True)
         main_data["enable_conv_4"] = True
-        etj.etj_main(org_yml, tar_yml, pair_yml, src_files, os.path.join(main_data["work_path"], "pair"))
+        etj.etj_main(org_yml, tar_yml, pair_yml, src_files, main_data["tgt_files"], os.path.join(main_data["work_path"], "pair"))
 
         
         main_data["etj_done"] = True
@@ -321,7 +331,7 @@ def main():
         configure_item('Step 4: Training', enabled=False)
 
         f0 = main_data["f0_ratios"][get_value("Select From F0 Ratios")]
-
+        org = f"{main_data['source_speaker']}_{f0}"
         src_files_split = (d.split("\\") for d in main_data['src_files'])
         src_files = [f"{f}_{f0}\\{d}" for f, d in src_files_split]
         pair_yml = os.path.join(main_data["work_path"], "conf", "pair", main_data["source_speaker"] + "-" + main_data["target_speaker"] + ".yml")
@@ -338,6 +348,7 @@ def main():
     
     def conv_step_5():
         configure_item('Step 5: Conversion', enabled=False)
+        save_loc = get_value("Save Path")
         f0 = main_data["f0_ratios"][get_value("Select From F0 Ratios")]
         org = f"{main_data['source_speaker']}_{f0}"
         conv_files_split = (d.split("\\") for d in main_data['conv_files'])
@@ -347,10 +358,10 @@ def main():
 
         if get_value('Do Non-Diff GMM as Well?'):
             conv.main(None, org, main_data["target_speaker"], org_yml, pair_yml, conv_files, main_data["work_path"],\
-                 os.path.join(main_data["work_path"], "pair"), get_value("Save Path"))
+                 os.path.join(main_data["work_path"], "pair"), save_loc)
 
         conv.main('diff', org, main_data["target_speaker"], org_yml, pair_yml, conv_files, main_data["work_path"],\
-                 os.path.join(main_data["work_path"], "pair"), get_value("Save Path"))
+                 os.path.join(main_data["work_path"], "pair"), save_loc)
 
         main_data["conversion_done"] = True
         configure_item("Conversion Done", show=True)
@@ -358,6 +369,9 @@ def main():
         configure_item('Step 5: Conversion', enabled=True)
 
         json.dump(main_data, open(os.path.join(main_data["work_path"], "state.conv"), "w"))
+
+        subprocess.Popen(f'explorer "{save_loc}"')
+
 
         
 
@@ -779,10 +793,14 @@ def main():
         configure_item('Step 2: Statistical Feature Extraction', enabled=main_data["enable_conv_2"])
         configure_item('Step 1: Feature Extraction', enabled=main_data["enable_conv_1"])
 
-        configure_item("Select From F0 Ratios", item=main_data["f0_ratios"])
+        configure_item("Select From F0 Ratios", items=main_data["f0_ratios"])
 
+        configure_item("Training and Conversion ##button", enabled=main_data["conf_pair_created"] & main_data['conf_speaker_created'] & main_data["f0trans_done"])
 
-
+        set_value("EF Progress", 1.0 if main_data["enable_conv_2"] else 0.0)
+        set_value("EFS Progress", 1.0 if main_data["enable_conv_3"] else 0.0)
+        set_value("ETJ Progress", 1.0 if main_data["enable_conv_4"] else 0.0)
+        set_value("Training Progress", 1.0 if main_data["enable_conv_5"] else 0.0)
 
 
     def open_json(sender, data):
@@ -965,12 +983,30 @@ def main():
         create_conv_4()
         create_conv_5()
 
-    with window("Training and Conversion", width=400, height=800):
+    def select_conv_save_path(sender, data):
+        directoy = data[0]
+
+        set_value("Save Path", directoy)
+
+    with window("Training and Conversion", width=600, height=600):
         with managed_columns("main_conv", 2):
-            add_listbox("Select F0 Ratio", items=main_data["f0_ratios"])
-            add_button("All at Once!")
+            add_listbox("Select From F0 Ratios", items=main_data["f0_ratios"])
+            add_button("All at Once!", callback=lambda: all_at_once())
 
         add_separator()
+
+        with managed_columns("save path", 2):
+            add_input_text("Save Path")
+            add_button("Browse... ##23422", callback=lambda: select_directory_dialog(callback=select_conv_save_path))
+        
+        add_text('If a path is not selected, files will be saved in [workpath]/pair.', color=(255, 0, 0))
+
+        add_separator()
+
+        add_checkbox('Do Non-Diff GMM as Well?', default_value=True)
+
+        add_separator()
+
         add_button('Step 1: Feature Extraction', enabled=main_data["enable_conv_1"], callback=lambda: create_conv_1())
         add_progress_bar("EF Progress")
         add_separator()
@@ -992,46 +1028,52 @@ def main():
         add_text("Training Done", show=False)
         add_text("Conversion Done", show=False)
 
-    with window("Split File on Silence", width=400, height=200):
+    with window("Split File on Silence", width=450, height=200):
         with managed_columns("getfile", 2):
             add_input_text("File Location")
-            add_button("Browse... ##232", callback=lambda: get_split_file())
+            add_button("Browse... ##232", callback=lambda: open_file_dialog(callback=get_split_file, extensions=".wav"))
 
-        add_separator()
+        add_separator()       
 
         with managed_columns("savefile", 2):
             add_input_text("Save Location")
-            add_button("Browse... ##2322", callback=lambda: set_split_save())
+            add_button("Browse... ##2322", callback=lambda: select_directory_dialog(callback=set_split_save))
         
         add_separator()
 
-        add_button("Split", callback=lambda: split_on_silence())
+        add_input_int("Silence Length Threshold", default_value=800)
+        add_input_int("Silence Power Threshold", tip="Must be a negative value", default_value=-40)
 
-        add_progress_bar("Split Progress")
+        add_separator()
+
+        add_button("Split", callback=lambda:  split_silence())
+
+        add_progress_bar("Split Progress", show=False)
 
         add_button("Reset", callback=lambda: reset_vals())
         
 
-    with window("Main Window", no_close=True, width=800, height=500, x_pos=randint(0, 500), y_pos=randint(0, 450)):
+    with window("Main Window", no_close=True, width=800, height=400, x_pos=randint(0, 500), y_pos=randint(0, 200)):
         with managed_columns("Main Buttons", 3):
             add_button("Create/Load New Settings", callback=lambda: show_item("Create Conversion Settings"), height=150, width=250)
             add_button("Create Train/Conversion List ##button", callback=lambda: show_item("Create Train/Conversion List ##window"), height=150, width=250)
             add_button("Create Configuration Files ##button", callback=lambda: show_item("Create Configuration Files"), enabled=main_data["files_copied"], height=150, width=250)
             add_button("F0 Transformation ##button", callback=lambda: show_item("F0 Transformation"), enabled=main_data["conf_pair_created"] & main_data["conf_speaker_created"], height=150, width=250)
-            add_button("Training and Conversion ##button", callback=lambda: show_item("Training and Conversion"), enabled=main_data["conf_pair_created"] & main_data["conf_speaker_created"] & main_data["f0strans_done"], height=150, width=250)
+            add_button("Training and Conversion ##button", callback=lambda: show_item("Training and Conversion"), enabled=main_data["conf_pair_created"] & main_data["conf_speaker_created"] & main_data["f0trans_done"], height=150, width=250)
             add_button("Split File on Silence ##button", callback=lambda: show_item("Split File on Silence"), height=150, width=250)
 
         with menu_bar("Main Menu Bar"):
-            with menu("File"):
-                add_menu_item("Credits", callback=lambda: show_item("Credits"))
+            with menu("Help"):
+                add_menu_item("Credits ##menu", callback=lambda: show_item("Credits"))
 
     
-    with window("Credits", width=200, height=150):
+    with window("Credits", width=230, height=150):
         add_text("2021 (C)")
         add_text("OctoShrew")
         add_text("Chubak Bidpaa")
         add_text("www.octoshrew.com")
         add_text("chubak.bidpaa@octoshrew.com")
+        add_button("Close", callback=lambda: hide_item("Credits"))
 
     hide_item("Create Train/Conversion List ##window")
     hide_item("Create Conversion Settings")

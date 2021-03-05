@@ -72,72 +72,78 @@ class Convert:
         test_dir = os.path.join(pair_dir, 'test')
 
         # conversion in each evaluation file
-        with open(eval_list, 'r') as fp:
-            for line in fp:
-                # open wav file
-                f = line.rstrip()
-                self.progress += 1
-                wavf = os.path.join(work_dir, f + '.wav')
-                fs, x = wavfile.read(wavf)
-                x = x.astype(np.float)
-                x = low_cut_filter(x, fs, cutoff=70)
-                assert fs == sconf.wav_fs
 
-                # create directory
-                os.makedirs(os.path.join(test_dir, os.path.dirname(f)), exist_ok=True)
 
-                if not os.path.exists(save_path):
-                    os.makedirs(save_path)
-                    test_dir_alt = save_path
+        test_dir_alt = save_path
 
-                # analyze F0, mcep, and ap
-                f0, spc, ap = feat.analyze(x)
-                mcep = feat.mcep(dim=sconf.mcep_dim, alpha=sconf.mcep_alpha)
-                mcep_0th = mcep[:, 0]
+        if not os.path.exists(os.path.join(test_dir_alt, "VC", org)):
+            os.makedirs(os.path.join(test_dir_alt, "VC", org))
 
-                # convert F0
-                cvf0 = f0stats.convert(f0, orgf0stats, tarf0stats)
+        if not os.path.exists(os.path.join(test_dir_alt, "DIFFVC", org)):
+            os.makedirs(os.path.join(test_dir_alt, "DIFFVC", org))
+    
+        for line in eval_list:
+            # open wav file
+            f = line.rstrip()
+            self.progress += 1
+            wavf = os.path.join(work_dir, f + '.wav')
+            fs, x = wavfile.read(wavf)
+            x = x.astype(np.float)
+            x = low_cut_filter(x, fs, cutoff=70)
+            assert fs == sconf.wav_fs
 
-                # convert mcep
-                cvmcep_wopow = mcepgmm.convert(static_delta(mcep[:, 1:]),
-                                            cvtype=pconf.GMM_mcep_cvtype)
-                cvmcep = np.c_[mcep_0th, cvmcep_wopow]
+            # create directory
+            os.makedirs(os.path.join(test_dir, os.path.dirname(f)), exist_ok=True)           
+            
 
-                # synthesis VC w/ GV
-                if gmmmode is None:
-                    cvmcep_wGV = mcepgv.postfilter(cvmcep,
-                                                targvstats,
-                                                cvgvstats=cvgvstats,
-                                                alpha=pconf.GV_morph_coeff,
-                                                startdim=1)
-                    wav = synthesizer.synthesis(cvf0,
+            # analyze F0, mcep, and ap
+            f0, spc, ap = feat.analyze(x)
+            mcep = feat.mcep(dim=sconf.mcep_dim, alpha=sconf.mcep_alpha)
+            mcep_0th = mcep[:, 0]
+
+            # convert F0
+            cvf0 = f0stats.convert(f0, orgf0stats, tarf0stats)
+
+            # convert mcep
+            cvmcep_wopow = mcepgmm.convert(static_delta(mcep[:, 1:]),
+                                        cvtype=pconf.GMM_mcep_cvtype)
+            cvmcep = np.c_[mcep_0th, cvmcep_wopow]
+
+            # synthesis VC w/ GV
+            if gmmmode is None:
+                cvmcep_wGV = mcepgv.postfilter(cvmcep,
+                                            targvstats,
+                                            cvgvstats=cvgvstats,
+                                            alpha=pconf.GV_morph_coeff,
+                                            startdim=1)
+                wav = synthesizer.synthesis(cvf0,
+                                            cvmcep_wGV,
+                                            ap,
+                                            rmcep=mcep,
+                                            alpha=sconf.mcep_alpha,
+                                            )
+                wavpath = os.path.join(test_dir, f + '_VC.wav')
+                wavpath_alt = os.path.join(test_dir_alt, "VC", f + '_VC.wav')
+
+            # synthesis DIFFVC w/ GV
+            if gmmmode == 'diff':
+                cvmcep[:, 0] = 0.0
+                cvmcep_wGV = mcepgv.postfilter(mcep + cvmcep,
+                                            targvstats,
+                                            cvgvstats=diffcvgvstats,
+                                            alpha=pconf.GV_morph_coeff,
+                                            startdim=1) - mcep
+                wav = synthesizer.synthesis_diff(x,
                                                 cvmcep_wGV,
-                                                ap,
                                                 rmcep=mcep,
                                                 alpha=sconf.mcep_alpha,
                                                 )
-                    wavpath = os.path.join(test_dir, f + '_VC.wav')
-                    wavpath_alt = os.path.join(test_dir_alt, f + '_VC.wav')
+                wavpath = os.path.join(test_dir, f + '_DIFFVC.wav')
+                wavpath_alt = os.path.join(test_dir_alt, "DIFFVC", f + '_DIFFVC.wav')
 
-                # synthesis DIFFVC w/ GV
-                if gmmmode == 'diff':
-                    cvmcep[:, 0] = 0.0
-                    cvmcep_wGV = mcepgv.postfilter(mcep + cvmcep,
-                                                targvstats,
-                                                cvgvstats=diffcvgvstats,
-                                                alpha=pconf.GV_morph_coeff,
-                                                startdim=1) - mcep
-                    wav = synthesizer.synthesis_diff(x,
-                                                    cvmcep_wGV,
-                                                    rmcep=mcep,
-                                                    alpha=sconf.mcep_alpha,
-                                                    )
-                    wavpath = os.path.join(test_dir, f + '_DIFFVC.wav')
-                    wavpath_alt = os.path.join(test_dir_alt, f + '_DIFFVC.wav')
+            # write waveform
+            wav = np.clip(wav, -32768, 32767)
+            wavfile.write(wavpath, fs, wav.astype(np.int16))
+            wavfile.write(wavpath_alt, fs, wav.astype(np.int16))
 
-                # write waveform
-                wav = np.clip(wav, -32768, 32767)
-                wavfile.write(wavpath, fs, wav.astype(np.int16))
-                wavfile.write(wavpath_alt, fs, wav.astype(np.int16))
-
-                print(wavpath)
+            print(wavpath)

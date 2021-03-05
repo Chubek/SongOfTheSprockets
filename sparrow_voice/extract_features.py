@@ -37,45 +37,50 @@ class ExtractFeatures:
                                 shiftms=sconf.wav_shiftms)
 
         # open list file
-        with open(list_file, 'r') as fp:
-            for line in fp:
-                f = line.rstrip()
-                self.ef_progress += 1
-                h5f = os.path.join(h5_dir, f + '.h5')
+        for line in list_file:
+            f = line.rstrip()
+            self.ef_progress += 1
+            h5f = os.path.join(h5_dir, f + '.h5')
 
-                if (not os.path.exists(h5f)) or overwrite:
-                    wavf = os.path.join(work_path, f + '.wav')
-                    fs, x = wavfile.read(wavf)
-                    x = np.array(x, dtype=np.float)
-                    x = low_cut_filter(x, fs, cutoff=70)
-                    assert fs == sconf.wav_fs
+            if (not os.path.exists(h5f)) or overwrite:
+                wavf = os.path.join(work_path, f + '.wav')
+                fs, x = wavfile.read(wavf)
 
-                    print("Extract acoustic features: " + wavf)
+                try:
+                    x = x[:, 0]
+                except:
+                    x = x
 
-                    # analyze F0, spc, and ap
-                    f0, spc, ap = feat.analyze(x)
-                    mcep = feat.mcep(dim=sconf.mcep_dim, alpha=sconf.mcep_alpha)
-                    npow = feat.npow()
-                    codeap = feat.codeap()
+                x = np.array(x, dtype=np.float)
+                x = low_cut_filter(x, fs, cutoff=70)
+                assert fs == sconf.wav_fs
+
+                print("Extract acoustic features: " + wavf)
+
+                # analyze F0, spc, and ap
+                f0, spc, ap = feat.analyze(x)
+                mcep = feat.mcep(dim=sconf.mcep_dim, alpha=sconf.mcep_alpha)
+                npow = feat.npow()
+                codeap = feat.codeap()
 
                     # save features into a hdf5 file
-                    h5 = HDF5(h5f, mode='a')
-                    h5.save(f0, ext='f0')
+                h5 = HDF5(h5f, mode='a')
+                h5.save(f0, ext='f0')
                     # h5.save(spc, ext='spc')
                     # h5.save(ap, ext='ap')
-                    h5.save(mcep, ext='mcep')
-                    h5.save(npow, ext='npow')
-                    h5.save(codeap, ext='codeap')
-                    h5.close()
+                h5.save(mcep, ext='mcep')
+                h5.save(npow, ext='npow')
+                h5.save(codeap, ext='codeap')
+                h5.close()
 
                     # analysis/synthesis using F0, mcep, and ap
-                    wav = synthesizer.synthesis(f0,
-                                                mcep,
+                wav = synthesizer.synthesis(f0,
+                                            mcep,
                                                 ap,
                                                 alpha=sconf.mcep_alpha,
                                                 )
-                    wav = np.clip(wav, -32768, 32767)
-                    anasynf = os.path.join(anasyn_dir, f + '.wav')
-                    wavfile.write(anasynf, fs, np.array(wav, dtype=np.int16))
-                else:
-                    print("Acoustic features already exist: " + h5f)
+                wav = np.clip(wav, -32768, 32767)
+                anasynf = os.path.join(anasyn_dir, f + '.wav')
+                wavfile.write(anasynf, fs, np.array(wav, dtype=np.int16))
+            else:
+                print("Acoustic features already exist: " + h5f)
